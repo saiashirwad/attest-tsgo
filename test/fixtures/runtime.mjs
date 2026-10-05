@@ -14,3 +14,8 @@ export function succeeds() {
 export function fails() {
   attest(value).type.toString.snap("string")
 }
+
+/** @param {unknown} value */
+export function assertionFor(value) {
+  return attest(value)
+}

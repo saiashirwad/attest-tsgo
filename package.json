@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "prepack": "npm run build",
-    "test": "npm run build && tsc --project test/fixtures/typed.tsconfig.json && node --test test/*.test.ts"
+    "test": "npm run build && tsc --project test/tsconfig.json && node --test test/*.test.ts"
   },
   "peerDependencies": {
     "typescript": ">=7.0.2 <8"
