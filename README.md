@@ -88,4 +88,4 @@ npm ci
 npm test
 ```
 
-The suite builds the library and tests compiler analysis, runtime assertions, measurements, and installation of the packed package. CI runs the suite on Ubuntu, Windows, and macOS with Node 24 and TypeScript 7.0.2, then runs the packed JavaScript test on Node 20.19.0.
+The suite builds the library and tests compiler analysis, runtime assertions, measurements, and installation of the packed package. CI runs the suite on Ubuntu with Node 24 and TypeScript 7.0.2, then runs the packed JavaScript test on Node 20.19.0.
