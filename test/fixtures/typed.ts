@@ -20,6 +20,18 @@ export function failsType(): void {
   attest<string, number>()
 }
 
+export function failsSubtype(): void {
+  attest<string, "ready">()
+}
+
+export function failsSupertype(): void {
+  attest<"ready", string>()
+}
+
+export function failsAny(): void {
+  attest<string, any>()
+}
+
 export function failsSnapshot(): void {
   attest(value).type.toString.snap("string")
 }
@@ -32,11 +44,19 @@ export function checksSuppressedError(): void {
   }).type.errors.snap("Type 'number' is not assignable to type 'string'.")
 }
 
-export function checksBoth(): void {
+export function checksBoth(expected: string | RegExp = "not assignable"): void {
   attest(() => {
     // @ts-expect-error test both compiler and runtime errors
     const invalid: string = 42
     throw new Error("not assignable")
+  }).throwsAndHasTypeError(expected)
+}
+
+export function failsMissingRuntimeError(): void {
+  attest(() => {
+    // @ts-expect-error the compiler error alone must not satisfy the assertion
+    const invalid: string = 42
+    return invalid
   }).throwsAndHasTypeError("not assignable")
 }
 

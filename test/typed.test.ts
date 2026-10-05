@@ -1,44 +1,62 @@
 import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { test } from "node:test"
+import { after, beforeEach, describe, test } from "node:test"
+import { analyzeProject } from "../src/analyze.ts"
 import { loadCache } from "../src/index.ts"
+import { passes, failsType, failsSubtype, failsSupertype, failsAny, failsSnapshot, checksSuppressedError, checksBoth, failsMissingTypeError, failsMissingRuntimeError, checksEditorData, checksNested } from "./fixtures/typed.ts"
 
 const project = fileURLToPath(new URL("./fixtures/typed.tsconfig.json", import.meta.url))
-const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url))
+const source = fileURLToPath(new URL("./fixtures/typed.ts", import.meta.url))
+const text = readFileSync(source, "utf8")
+const good = analyzeProject(project)
+const directory = mkdtempSync(join(tmpdir(), "attest-tsgo-typed-"))
+const output = join(directory, "cache.json")
+after(() => rmSync(directory, { recursive: true, force: true }))
 
-test("precache CLI supplies native assertions to TypeScript", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "attest-tsgo-cli-"))
-  try {
-    const output = join(directory, "cache.json")
-    const text = execFileSync(process.execPath, [cli, "precache", "-p", project, "-o", output], { encoding: "utf8" })
-    assert.match(text, /Cached 15 assertions from TypeScript 7\.0\.2/)
-    const good = JSON.parse(readFileSync(output, "utf8"))
-    assert.equal(good.assertions.length, 15)
+describe("typed runtime assertions", () => {
+  beforeEach(() => {
+    writeFileSync(output, JSON.stringify(good))
     loadCache(output)
-    const { passes, failsType, failsSnapshot, checksSuppressedError, checksBoth, failsMissingTypeError, checksEditorData, checksNested } = await import("./fixtures/typed.ts")
-    passes()
-    checksSuppressedError()
+  })
+
+  test("equal types, values, and documented inputs pass", passes)
+  test("suppressed compiler errors reach runtime assertions", checksSuppressedError)
+  test("property documentation and sorted completions reach runtime assertions", checksEditorData)
+  test("nested calls and columns after emoji resolve independently", checksNested)
+
+  for (const { name, run, message } of [
+    { name: "unrelated types", run: failsType, message: /number is none to string/ },
+    { name: "strict subtypes", run: failsSubtype, message: /is subtype to string/ },
+    { name: "strict supertypes", run: failsSupertype, message: /string is supertype/ },
+    { name: "any as a substitute for a concrete type", run: failsAny, message: /any is supertype to string/ },
+    { name: "incorrect type snapshots", run: failsSnapshot, message: /Type: expected "string", got "number"/ }
+  ]) {
+    test(`rejects ${name}`, () => assert.throws(run, message))
+  }
+
+  test("combined assertions require both runtime and compiler errors", () => {
     checksBoth()
-    checksEditorData()
-    checksNested()
+    checksBoth(/not assignable/g)
     assert.throws(failsMissingTypeError, /Type errors did not match/)
-    assert.throws(failsType, /number is none to string/)
-    assert.throws(failsSnapshot, /Type: expected "string", got "number"/)
-    const nested = good.assertions.filter(record => record.line === 54).sort((a, b) => a.start - b.start)
-    assert.equal(nested.length, 2)
-    writeFileSync(output, JSON.stringify({ ...good, assertions: good.assertions.filter(record => record !== nested[1]) }))
-    loadCache(output)
-    assert.throws(checksNested, /No cached attest call/)
-    const sameLine = good.assertions.filter(record => record.line === 15)
-    assert.equal(sameLine.length, 2)
-    writeFileSync(output, JSON.stringify({ ...good, assertions: good.assertions.filter(record => record !== sameLine[1]) }))
-    loadCache(output)
-    assert.throws(passes, /No cached attest call/)
-  } finally {
-    rmSync(directory, { recursive: true, force: true })
+    assert.throws(failsMissingRuntimeError, /Expected function to throw/)
+  })
+
+  for (const { name, call, run } of [
+    { name: "inner nested call", call: 'attest(value).type.toString.is("number")', run: checksNested },
+    { name: "second call on the same line", call: 'attest(label).type.toString.snap("string")', run: passes },
+    { name: "call after an emoji", call: 'attest(value).type.toString.snap("number")\n  void emoji', run: checksNested }
+  ]) {
+    test(`cannot substitute another record for a missing ${name}`, () => {
+      const position = text.indexOf(call)
+      assert.notEqual(position, -1)
+      const record = good.assertions.find(record => record.file === source && record.start === position)
+      assert.ok(record)
+      writeFileSync(output, JSON.stringify({ ...good, assertions: good.assertions.filter(entry => entry !== record) }))
+      loadCache(output)
+      assert.throws(run, /No cached attest call/)
+    })
   }
 })
