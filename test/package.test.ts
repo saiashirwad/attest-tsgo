@@ -23,7 +23,7 @@ test("packed package works in an isolated TypeScript project", () => {
       files: ["sample.mts"]
     }))
     const source = join(directory, "sample.mts")
-    writeFileSync(source, `import { attest, loadCache } from "attest-tsgo"
+    writeFileSync(source, `import { attest, loadCache } from "@texoport/attest"
 import { fileURLToPath } from "node:url"
 
 loadCache(fileURLToPath(new URL("../cache.json", import.meta.url)))

@@ -1,5 +1,5 @@
 {
-  "name": "attest-tsgo",
+  "name": "@texoport/attest",
   "version": "0.1.0",
   "description": "Experimental type assertions backed by native TypeScript 7",
   "type": "module",
