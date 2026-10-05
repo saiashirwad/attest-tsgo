@@ -7,6 +7,7 @@
   "bugs": { "url": "https://github.com/saiashirwad/attest-tsgo/issues" },
   "homepage": "https://github.com/saiashirwad/attest-tsgo#readme",
   "keywords": ["typescript", "assertions", "type-testing", "tsgo"],
+  "publishConfig": { "access": "public" },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
