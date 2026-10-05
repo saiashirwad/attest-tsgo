@@ -1,10 +1,11 @@
+import { AssertionError } from "node:assert"
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
-import { fileURLToPath } from "node:url"
-import { isDeepStrictEqual } from "node:util"
+import { inspect, isDeepStrictEqual } from "node:util"
 import { version } from "typescript"
-import type { AssertionCache, AssertionRecord, Relationship } from "./analyze.ts"
+import { callSite } from "./callsite.ts"
+import { effectiveConfig } from "./compiler/config.ts"
+import type { AssertionCache, AssertionRecord, CompletionQuery, Relationship } from "./analyze.ts"
 
 export { measureInstantiations } from "./measure.ts"
 
@@ -19,50 +20,67 @@ function isRelationship(value: unknown): value is Relationship {
   return value === "equality" || value === "subtype" || value === "supertype" || value === "none"
 }
 
+function isCompletionQuery(value: unknown): value is CompletionQuery {
+  if (!isRecord(value)) return false
+  if (value.kind === "not-queried") return true
+  if (typeof value.position !== "number") return false
+  if (value.kind === "unsupported" || value.kind === "empty") return true
+  return value.kind === "results" && Array.isArray(value.entries) && value.entries.every(entry => typeof entry === "string")
+}
+
 function isAssertionRecord(value: unknown): value is AssertionRecord {
   if (!isRecord(value)) return false
-  const { file, start, end, line, column, type, expected, relationship, errors, jsdoc, completions } = value
+  const { file, start, end, line, column, type, expected, relationship, errors, diagnostics, jsdoc, completions, completionQueries } = value
   return typeof file === "string" && typeof start === "number" && typeof end === "number" &&
     typeof line === "number" && typeof column === "number" && typeof type === "string" &&
     typeof errors === "string" && typeof jsdoc === "string" &&
-    Array.isArray(completions) && completions.every((entry: unknown) => typeof entry === "string") &&
+    Array.isArray(diagnostics) && diagnostics.every(d => isRecord(d) && typeof d.code === "number" && typeof d.start === "number" && typeof d.end === "number" && typeof d.text === "string") &&
+    (completions === null || Array.isArray(completions) && completions.every((entry: unknown) => typeof entry === "string")) &&
+    Array.isArray(completionQueries) && completionQueries.every(isCompletionQuery) &&
     (expected === undefined && relationship === undefined || typeof expected === "string" && isRelationship(relationship))
 }
 
 function isAssertionCache(value: unknown): value is AssertionCache {
-  if (!isRecord(value) || !isRecord(value.sources) || !Array.isArray(value.assertions)) return false
+  if (!isRecord(value) || !isRecord(value.sources) || !isRecord(value.options) || !Array.isArray(value.roots) || !Array.isArray(value.assertions)) return false
   const sources = value.sources
   const assertions = value.assertions
-  return value.schema === 1 && typeof value.compiler === "string" && typeof value.config === "string" &&
-    Object.values(sources).every(hash => typeof hash === "string") &&
+  return value.schema === 3 && typeof value.compiler === "string" && typeof value.config === "string" && typeof value.configFingerprint === "string" &&
+    sources[value.config] !== undefined && value.roots.every(root => typeof root === "string" && sources[root] !== undefined) &&
+    Object.entries(sources).every(([file, hash]) => file.length > 0 && typeof hash === "string") &&
     assertions.every((record: unknown) => isAssertionRecord(record) && sources[record.file] !== undefined)
 }
 
 export function loadCache(path: string): void {
-  const data: unknown = JSON.parse(readFileSync(path, "utf8"))
+  cache = undefined
+  checkedSources.clear()
+  let data: unknown
+  try { data = JSON.parse(readFileSync(path, "utf8")) } catch {
+    throw new Error(`Invalid or missing attest-tsgo cache at ${path}; rerun precache`)
+  }
   if (!isAssertionCache(data) || data.compiler !== version) {
     throw new Error(`Invalid or incompatible attest-tsgo cache at ${path}; rerun precache`)
   }
+  let fingerprint: string
+  try { fingerprint = effectiveConfig(data.config).fingerprint } catch {
+    throw new Error(`Stale or missing attest-tsgo cache for ${data.config}; rerun precache`)
+  }
+  if (fingerprint !== data.configFingerprint) throw new Error(`Stale or missing attest-tsgo cache for ${data.config}; rerun precache`)
+  for (const [file, hash] of Object.entries(data.sources)) {
+    let text: Buffer
+    try { text = readFileSync(file) } catch { throw new Error(`Stale or missing attest-tsgo cache for ${file}; rerun precache`) }
+    if (createHash("sha256").update(text).digest("hex") !== hash) {
+      throw new Error(`Stale or missing attest-tsgo cache for ${file}; rerun precache`)
+    }
+  }
   cache = data
-  checkedSources.clear()
 }
 
 function currentAssertion(): AssertionRecord {
   if (!cache) throw new Error("No attest-tsgo cache loaded; run precache and loadCache(path) first")
-  const frame = new Error().stack?.split("\n")[3]?.trim()
-  const match = frame && /\(?(file:\/\/\/[^)]+|\/[^ ()]+):(\d+):(\d+)\)?$/.exec(frame)
-  const location = match?.[1]
-  if (!location || !match[2] || !match[3]) throw new Error(`Cannot locate attest call: ${frame ?? "no stack frame"}`)
-  const file = location.startsWith("file:") ? fileURLToPath(location) : resolve(location)
-  const line = Number(match[2])
-  const column = Number(match[3])
+  const { file, line, column } = callSite(attest)
   let text = checkedSources.get(file)
   if (text === undefined) {
     text = readFileSync(file, "utf8")
-    const expectedHash = cache.sources[file]
-    if (!expectedHash || createHash("sha256").update(text).digest("hex") !== expectedHash) {
-      throw new Error(`Stale or missing attest-tsgo cache for ${file}; rerun precache`)
-    }
     checkedSources.set(file, text)
   }
   let lineStart = 0
@@ -79,7 +97,8 @@ function currentAssertion(): AssertionRecord {
 
 function compare(actual: unknown, expected: unknown, label: string): void {
   if (!isDeepStrictEqual(actual, expected)) {
-    throw new Error(`${label}: expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`)
+    const format = (value: unknown) => typeof value === "string" ? JSON.stringify(value) : inspect(value)
+    throw new AssertionError({ actual, expected, operator: "deepStrictEqual", message: `${label}: expected ${format(expected)}, got ${format(actual)}` })
   }
 }
 
@@ -129,7 +148,13 @@ function assertion(value: unknown, record: AssertionRecord) {
       toString: textAssertion(record.type, "Type"),
       errors: textAssertion(record.errors, "Type errors"),
       completions: {
-        snap(expected: string[]) { compare(record.completions, expected, "Completions") }
+        snap(expected: string[]) {
+          if (record.completions === null) throw new Error("No direct property completions available; inspect .type.completionQueries instead")
+          compare(record.completions, expected, "Completions")
+        }
+      },
+      completionQueries: {
+        snap(expected: CompletionQuery[]) { compare(record.completionQueries, expected, "Completion queries") }
       }
     },
     jsdoc: textAssertion(record.jsdoc, "JSDoc")

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
-import { readFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { test } from "node:test"
 import { analyzeProject } from "../src/analyze.ts"
@@ -31,4 +33,30 @@ for (const { comment, literal } of [
 test("retains the original source hash and leaves the analyzed file untouched", () => {
   assert.equal(cache.sources[file], createHash("sha256").update(source).digest("hex"))
   assert.equal(readFileSync(file, "utf8"), source)
+})
+
+test("only comment directives are neutralized, including no-check and both comment styles", () => {
+  const dir = mkdtempSync(join(tmpdir(), "attest-suppression-"))
+  try {
+    const config = join(dir, "tsconfig.json")
+    writeFileSync(config, JSON.stringify({ compilerOptions: { strict: true, noEmit: true }, files: ["source.ts"] }))
+    writeFileSync(join(dir, "source.ts"), [
+      "// @ts-nocheck",
+      "declare function attest(value: unknown): void",
+      "const string = '@ts-ignore @ts-expect-error @ts-nocheck'",
+      "const template = `@ts-ignore @ts-expect-error ${(() => { /* @ts-ignore */ return '@ts-nocheck' })()}`",
+      "const regex = /@ts-ignore|@ts-expect-error|@ts-nocheck/",
+      "attest(() => {",
+      "  // @ts-ignore",
+      "  const one: string = 1",
+      "  /* @ts-expect-error */",
+      "  const two: string = 2",
+      "  return [one, two, string, template, regex]",
+      "})"
+    ].join("\n"))
+    const result = analyzeProject(config)
+    assert.deepEqual(result.assertions[0].diagnostics.map(d => d.code), [2322, 2322])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

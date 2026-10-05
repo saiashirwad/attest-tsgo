@@ -75,3 +75,12 @@ export function checksNested(): void {
   const emoji = "💡"; attest(value).type.toString.snap("number")
   void emoji
 }
+
+export function checksCompletionQueries(expected: Parameters<ReturnType<typeof attest>["type"]["completionQueries"]["snap"]>[0]): void {
+  attest<"alpha" | "beta">("alpha" as "alpha" | "beta").type.completionQueries.snap(expected)
+  attest(value).type.completionQueries.snap([{ kind: "not-queried" }])
+}
+
+export function checksNoDirectCompletion(): void {
+  attest(value).type.completions.snap([])
+}

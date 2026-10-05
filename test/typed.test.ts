@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -6,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import { after, beforeEach, describe, test } from "node:test"
 import { analyzeProject } from "../src/analyze.ts"
 import { loadCache } from "../src/index.ts"
-import { passes, failsType, failsSubtype, failsSupertype, failsAny, failsSnapshot, checksSuppressedError, checksBoth, failsMissingTypeError, failsMissingRuntimeError, checksEditorData, checksNested } from "./fixtures/typed.ts"
+import { passes, failsType, failsSubtype, failsSupertype, failsAny, failsSnapshot, checksSuppressedError, checksBoth, failsMissingTypeError, failsMissingRuntimeError, checksEditorData, checksNested, checksCompletionQueries, checksNoDirectCompletion } from "./fixtures/typed.ts"
 
 const project = fileURLToPath(new URL("./fixtures/typed.tsconfig.json", import.meta.url))
 const source = fileURLToPath(new URL("./fixtures/typed.ts", import.meta.url))
@@ -26,6 +27,20 @@ describe("typed runtime assertions", () => {
   test("suppressed compiler errors reach runtime assertions", checksSuppressedError)
   test("property documentation and sorted completions reach runtime assertions", checksEditorData)
   test("nested calls and columns after emoji resolve independently", checksNested)
+
+  test("string completions retain their positions and calls without candidates remain unqueried", () => {
+    checksCompletionQueries([{ kind: "results", position: text.indexOf('"alpha" as "alpha"') + 1, entries: ["alpha", "beta"] }])
+    assert.throws(checksNoDirectCompletion, /No direct property completions available/)
+  })
+
+  test("precache CLI produces a loadable cache for the typed fixture", () => {
+    const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url))
+    const result = execFileSync(process.execPath, [cli, "precache", "-p", project, "-o", output], { encoding: "utf8" })
+    assert.match(result, new RegExp(`Cached ${good.assertions.length} assertions from TypeScript 7\\.0\\.2`))
+    assert.equal(JSON.parse(readFileSync(output, "utf8")).assertions.length, good.assertions.length)
+    loadCache(output)
+    passes()
+  })
 
   for (const { name, run, message } of [
     { name: "unrelated types", run: failsType, message: /number is none to string/ },

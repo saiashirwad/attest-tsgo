@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import { after, beforeEach, describe, test } from "node:test"
 import { analyzeProject } from "../src/analyze.ts"
 import { attest, loadCache } from "../src/index.ts"
-import { assertionFor, succeeds, fails } from "./fixtures/runtime.mjs"
+import { assertionFor, comparisons, succeeds, fails } from "./fixtures/runtime.mjs"
 
 const config = fileURLToPath(new URL("./fixtures/runtime.tsconfig.json", import.meta.url))
 
@@ -35,6 +35,13 @@ describe("runtime assertions", () => {
     assertionFor({ items: [1] }).snap({ items: [1] })
     assert.throws(() => assertionFor({ items: [1] }).is({ items: ["1"] }), /Value: expected/)
     assert.throws(() => assertionFor({ items: [1] }).snap({ items: [2] }), /Value snapshot: expected/)
+  })
+
+  test("BigInt, circular and collection mismatches remain assertion failures", () => {
+    const cases = comparisons()
+    for (const [name, run] of Object.entries(cases)) {
+      assert.throws(run, error => error instanceof assert.AssertionError && error.message.startsWith("Value: expected "), name)
+    }
   })
 
   test("text assertions distinguish substrings from exact snapshots", () => {
@@ -73,8 +80,8 @@ describe("runtime assertions", () => {
     const record = good.assertions[0]
     assert.ok(record)
     writeFileSync(path, JSON.stringify({ ...good, sources: { ...good.sources, [record.file]: "wrong" } }))
-    loadCache(path)
-    assert.throws(succeeds, /Stale or missing attest-tsgo cache/)
+    assert.throws(() => loadCache(path), /Stale or missing attest-tsgo cache/)
+    assert.throws(succeeds, /No attest-tsgo cache loaded/)
   })
 })
 
@@ -100,4 +107,10 @@ describe("cache validation", () => {
       assert.throws(() => loadCache(path), /Invalid or incompatible attest-tsgo cache/)
     })
   }
+
+  test("rejects invalid JSON and clears the loaded cache", () => {
+    writeFileSync(path, "{broken")
+    assert.throws(() => loadCache(path), /Invalid or missing attest-tsgo cache.*rerun precache/)
+    assert.throws(succeeds, /No attest-tsgo cache loaded/)
+  })
 })

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict"
-import { readFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { test } from "node:test"
 import { analyzeProject, type Relationship } from "../src/analyze.ts"
@@ -56,4 +58,76 @@ test("extracts argument documentation without inventing an expected type", () =>
   assert.equal(record.type, "number")
   assert.equal(record.expected, undefined)
   assert.equal(record.relationship, undefined)
+})
+
+test("invalid configuration, missing projects, noCheck and empty projects fail explicitly", () => {
+  const dir = mkdtempSync(join(tmpdir(), "attest-analysis-"))
+  try {
+    const project = join(dir, "tsconfig.json")
+    assert.throws(() => analyzeProject(project), /Cannot load TypeScript project/)
+    writeFileSync(join(dir, "sample.ts"), "export const value = 1\n")
+    const configFor = (options: object) => writeFileSync(project, JSON.stringify({ compilerOptions: options, files: ["sample.ts"] }))
+    configFor({ unknownCompilerOption: true })
+    assert.throws(() => analyzeProject(project), /Unknown compiler option/)
+    configFor({ noCheck: true })
+    assert.throws(() => analyzeProject(project), /noCheck enabled/)
+    configFor({ strict: true })
+    assert.throws(() => analyzeProject(project), /No attest\(\.\.\.\) assertions found/)
+    assert.equal(analyzeProject(project, { allowEmpty: true }).assertions.length, 0)
+    writeFileSync(join(dir, "sample.ts"), "declare function attest(value: unknown): void\nattest(() => { const x: string = 1; return x })\n")
+    const result = analyzeProject(project)
+    assert.deepEqual(result.assertions[0].diagnostics.map(d => d.code), [2322])
+    writeFileSync(join(dir, "sample.ts"), "attest(() => { const x = ; })\n")
+    assert.throws(() => analyzeProject(project), /Cannot analyze.*Expression expected/s)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("relations cover unions, aliases and recursive types", () => {
+  const dir = mkdtempSync(join(tmpdir(), "attest-types-"))
+  try {
+    const project = join(dir, "tsconfig.json")
+    writeFileSync(project, JSON.stringify({ compilerOptions: { strict: true }, files: ["types.ts"] }))
+    writeFileSync(join(dir, "types.ts"), [
+      "declare function attest<E, A>(): void",
+      "type Box<T> = { value: T }",
+      "type Recursive = { next?: Recursive }",
+      "attest<number, number>()",
+      "attest<number | string, number>()",
+      "attest<number, number | string>()",
+      "attest<string, number>()",
+      "attest<unknown, any>()",
+      "attest<any, unknown>()",
+      "attest<never, never>()",
+      "attest<Box<string>, Box<string>>()",
+      "attest<MissingType, string>()",
+      "attest<Recursive, Recursive>()"
+    ].join("\n"))
+    const records = analyzeProject(project).assertions
+    assert.deepEqual(records.map(r => r.relationship), ["equality", "subtype", "supertype", "none", "supertype", "subtype", "equality", "equality", "none", "equality"])
+    assert.match(records[8].type, /string/)
+    assert.ok(records[9].type.length > 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("records distinct string and template completion positions and unqueried calls", () => {
+  const dir = mkdtempSync(join(tmpdir(), "attest-completions-"))
+  try {
+    const project = join(dir, "tsconfig.json")
+    const code = 'declare function attest<T>(...value: T[]): void\ntype Choice = "alpha" | "beta"\nattest<Choice>("a", `b`)\nattest(42)\nattest<string>("x")\n'
+    writeFileSync(project, JSON.stringify({ files: ["types.ts"] }))
+    writeFileSync(join(dir, "types.ts"), code)
+    const [strings, number, unsupported] = analyzeProject(project).assertions
+    assert.deepEqual(strings.completionQueries, [
+      { kind: "results", position: code.indexOf('"a"') + 1, entries: ["alpha", "beta"] },
+      { kind: "results", position: code.indexOf('`b`') + 1, entries: ["alpha", "beta"] }
+    ])
+    assert.deepEqual(number.completionQueries, [{ kind: "not-queried" }])
+    assert.deepEqual(unsupported.completionQueries, [{ kind: "unsupported", position: code.lastIndexOf('"x"') + 1 }])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
