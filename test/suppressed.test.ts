@@ -55,7 +55,9 @@ test("only comment directives are neutralized, including no-check and both comme
       "})"
     ].join("\n"))
     const result = analyzeProject(config)
-    assert.deepEqual(result.assertions[0].diagnostics.map(d => d.code), [2322, 2322])
+    const [record] = result.assertions
+    assert.ok(record)
+    assert.deepEqual(record.diagnostics.map(d => d.code), [2322, 2322])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

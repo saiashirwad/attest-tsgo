@@ -76,7 +76,9 @@ test("invalid configuration, missing projects, noCheck and empty projects fail e
     assert.equal(analyzeProject(project, { allowEmpty: true }).assertions.length, 0)
     writeFileSync(join(dir, "sample.ts"), "declare function attest(value: unknown): void\nattest(() => { const x: string = 1; return x })\n")
     const result = analyzeProject(project)
-    assert.deepEqual(result.assertions[0].diagnostics.map(d => d.code), [2322])
+    const [record] = result.assertions
+    assert.ok(record)
+    assert.deepEqual(record.diagnostics.map(d => d.code), [2322])
     writeFileSync(join(dir, "sample.ts"), "attest(() => { const x = ; })\n")
     assert.throws(() => analyzeProject(project), /Cannot analyze.*Expression expected/s)
   } finally {
@@ -106,8 +108,12 @@ test("relations cover unions, aliases and recursive types", () => {
     ].join("\n"))
     const records = analyzeProject(project).assertions
     assert.deepEqual(records.map(r => r.relationship), ["equality", "subtype", "supertype", "none", "supertype", "subtype", "equality", "equality", "none", "equality"])
-    assert.match(records[8].type, /string/)
-    assert.ok(records[9].type.length > 0)
+    const unresolved = records[8]
+    const recursive = records[9]
+    assert.ok(unresolved)
+    assert.ok(recursive)
+    assert.match(unresolved.type, /string/)
+    assert.ok(recursive.type.length > 0)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -121,6 +127,9 @@ test("records distinct string and template completion positions and unqueried ca
     writeFileSync(project, JSON.stringify({ files: ["types.ts"] }))
     writeFileSync(join(dir, "types.ts"), code)
     const [strings, number, unsupported] = analyzeProject(project).assertions
+    assert.ok(strings)
+    assert.ok(number)
+    assert.ok(unsupported)
     assert.deepEqual(strings.completionQueries, [
       { kind: "results", position: code.indexOf('"a"') + 1, entries: ["alpha", "beta"] },
       { kind: "results", position: code.indexOf('`b`') + 1, entries: ["alpha", "beta"] }
@@ -140,7 +149,8 @@ test("queries the head, middle and tail of an interpolated template separately",
     writeFileSync(project, JSON.stringify({ files: ["types.ts"] }))
     writeFileSync(join(dir, "types.ts"), code)
     const [record] = analyzeProject(project).assertions
-    assert.deepEqual(record.completionQueries.map(query => query.position), [
+    assert.ok(record)
+    assert.deepEqual(record.completionQueries.map(query => "position" in query ? query.position : null), [
       code.indexOf('`a${') + 1,
       code.indexOf('}b${') + 1,
       code.indexOf('}g`') + 1
