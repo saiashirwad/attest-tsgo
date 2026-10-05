@@ -1,0 +1,24 @@
+{
+  "name": "attest-tsgo",
+  "version": "0.1.0",
+  "description": "Experimental type assertions backed by native TypeScript 7",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "bin": { "attest-tsgo": "./dist/cli.js" },
+  "files": ["dist"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "prepack": "npm run build",
+    "test": "npm run build && tsc --project test/fixtures/typed.tsconfig.json && node --test test/*.test.ts"
+  },
+  "peerDependencies": {
+    "typescript": ">=7.0.2 <8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "7.0.2"
+  }
+}
