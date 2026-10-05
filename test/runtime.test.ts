@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 import { after, beforeEach, describe, test } from "node:test"
 import { analyzeProject } from "../src/analyze.ts"
 import { attest, loadCache } from "../src/index.ts"
-import { assertionFor, comparisons, succeeds, fails } from "./fixtures/runtime.mjs"
+import { assertionFor, comparisons, hostileInspection, succeeds, fails } from "./fixtures/runtime.mjs"
 
 const config = fileURLToPath(new URL("./fixtures/runtime.tsconfig.json", import.meta.url))
 
@@ -42,6 +42,10 @@ describe("runtime assertions", () => {
     for (const [name, run] of Object.entries(cases)) {
       assert.throws(run, error => error instanceof assert.AssertionError && error.message.startsWith("Value: expected "), name)
     }
+  })
+
+  test("custom inspection hooks cannot replace assertion failures", () => {
+    assert.throws(hostileInspection, error => error instanceof assert.AssertionError && !error.message.includes("inspect hook ran"))
   })
 
   test("text assertions distinguish substrings from exact snapshots", () => {

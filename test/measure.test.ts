@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -62,7 +63,11 @@ for (const stage of ["baseline", "candidate"]) {
 }
 
 test("measurement times out and cleans up", () => {
-  assert.throws(() => measureInstantiations({ project, source, baseline, candidate, timeoutMs: 1 }), /Native TypeScript measurement timed out/i)
+  assert.throws(() => measureInstantiations({ project, source, baseline, candidate, timeoutMs: 50 }), /Native TypeScript measurement timed out/i)
+  if (process.platform !== "win32") {
+    const processes = execFileSync("ps", ["-eo", "comm,args"], { encoding: "utf8" })
+    assert.equal(processes.split("\n").filter(line => /^\s*tsc\s/.test(line) && line.includes(".attest-tsgo-")).length, 0)
+  }
 })
 
 test("measurement rejects project context it cannot reproduce and overrides noCheck", () => {
@@ -80,6 +85,15 @@ test("measurement rejects project context it cannot reproduce and overrides noCh
     assert.throws(() => measureInstantiations({ ...input, candidate: 'import "./cycle.js"' }), /isolated source: imports/)
     assert.throws(() => measureInstantiations({ ...input, candidate: 'const x = `${1}`; import "./cycle.js"' }), /isolated source: imports/)
     assert.throws(() => measureInstantiations({ ...input, candidate: '/// <reference path="./cycle.ts" />' }), /isolated source: imports/)
+    for (const reexport of [
+      'export type { Box } from "./cycle.js"',
+      'export * as dep from "./cycle.js"',
+      'export /* comment */ { Box } /* comment */ from "./cycle.js"',
+      'const x = `${1}`; export type { Box } from "./cycle.js"'
+    ]) {
+      assert.throws(() => measureInstantiations({ ...input, candidate: reexport }), /isolated source: imports/, reexport)
+    }
+    assert.throws(() => measureInstantiations({ ...input, candidate: 'export * from "./cycle.js"' }), /isolated source: imports/)
     writeFileSync(join(dir, "globals.d.ts"), "interface BenchmarkContext { value: string }\n")
     writeFileSync(config, JSON.stringify({ files: ["main.ts", "globals.d.ts"] }))
     assert.throws(() => measureInstantiations(input), /isolated single-root project/)

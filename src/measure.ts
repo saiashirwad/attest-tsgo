@@ -2,9 +2,8 @@ import { spawnSync } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
 import { rmSync, writeFileSync } from "node:fs"
 import { basename, dirname, extname, join, resolve } from "node:path"
-import { version } from "typescript"
-import { createScanner, SyntaxKind } from "./compiler/native.ts"
-import { compilerCLI, effectiveConfig } from "./compiler/config.ts"
+import { createScanner, SyntaxKind, version } from "./compiler/native.ts"
+import { compilerExecutable, effectiveConfig } from "./compiler/config.ts"
 
 export interface MeasurementInput {
   project: string
@@ -24,15 +23,19 @@ export interface Measurement {
 }
 
 function assertIsolated(text: string): void {
-  if (/<reference\s+(?:path|types)\b/.test(text) || /\bexport\s+(?:\*|\{[^}]*\})\s+from\b/.test(text) ||
-      (text.includes("${") && /\b(?:import|require)\b/.test(text))) {
+  if (/<reference\s+(?:path|types)\b/.test(text) ||
+      (text.includes("${") && /\b(?:import|require|export)\b/.test(text))) {
     throw new Error("Native TypeScript measurement requires isolated source: imports and references are not supported")
   }
   const scanner = createScanner(true, 0, text)
-  while (scanner.scan() !== SyntaxKind.EndOfFile) {
-    if (scanner.getToken() === SyntaxKind.ImportKeyword || scanner.getTokenText() === "require") {
+  let exporting = false
+  for (let token = scanner.scan(); token !== SyntaxKind.EndOfFile; token = scanner.scan()) {
+    if (token === SyntaxKind.ImportKeyword || scanner.getTokenText() === "require" ||
+        exporting && token === SyntaxKind.FromKeyword && scanner.scan() === SyntaxKind.StringLiteral) {
       throw new Error("Native TypeScript measurement requires isolated source: imports and references are not supported")
     }
+    if (token === SyntaxKind.ExportKeyword) exporting = true
+    if (token === SyntaxKind.SemicolonToken) exporting = false
   }
 }
 
@@ -53,7 +56,7 @@ export function measureInstantiations({ project, source, baseline, candidate, ti
   const config = `${synthetic}.json`
   function count(text: string): number {
     writeFileSync(synthetic, text)
-    const result = spawnSync(process.execPath, [compilerCLI, "--project", config, "--extendedDiagnostics", "--singleThreaded", "--pretty", "false"], {
+    const result = spawnSync(compilerExecutable, ["--project", config, "--extendedDiagnostics", "--singleThreaded", "--pretty", "false"], {
       cwd: dirname(file), encoding: "utf8", maxBuffer: 8 * 1024 * 1024, timeout: timeoutMs
     })
     if (result.error && "code" in result.error && result.error.code === "ETIMEDOUT") throw new Error(`Native TypeScript measurement timed out after ${timeoutMs}ms`)

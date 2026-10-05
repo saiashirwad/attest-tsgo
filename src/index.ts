@@ -97,7 +97,7 @@ function currentAssertion(): AssertionRecord {
 
 function compare(actual: unknown, expected: unknown, label: string): void {
   if (!isDeepStrictEqual(actual, expected)) {
-    const format = (value: unknown) => typeof value === "string" ? JSON.stringify(value) : inspect(value)
+    const format = (value: unknown) => typeof value === "string" ? JSON.stringify(value) : inspect(value, { customInspect: false, getters: false })
     throw new AssertionError({ actual, expected, operator: "deepStrictEqual", message: `${label}: expected ${format(expected)}, got ${format(actual)}` })
   }
 }

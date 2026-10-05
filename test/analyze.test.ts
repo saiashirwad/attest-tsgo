@@ -131,3 +131,22 @@ test("records distinct string and template completion positions and unqueried ca
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("queries the head, middle and tail of an interpolated template separately", () => {
+  const dir = mkdtempSync(join(tmpdir(), "attest-template-"))
+  try {
+    const project = join(dir, "tsconfig.json")
+    const code = 'declare function attest<T>(value: T): void\ntype Choice = `alpha${number}beta${number}gamma`\nattest<Choice>(`a${1}b${2}g`)\n'
+    writeFileSync(project, JSON.stringify({ files: ["types.ts"] }))
+    writeFileSync(join(dir, "types.ts"), code)
+    const [record] = analyzeProject(project).assertions
+    assert.deepEqual(record.completionQueries.map(query => query.position), [
+      code.indexOf('`a${') + 1,
+      code.indexOf('}b${') + 1,
+      code.indexOf('}g`') + 1
+    ])
+    assert.deepEqual(record.completionQueries.map(query => query.kind), ["unsupported", "unsupported", "unsupported"])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

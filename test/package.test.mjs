@@ -52,6 +52,9 @@ if (process.argv[2] === "fail") attest<string, number>()
     assert.match(result, /Cached 7 assertions from TypeScript 7\.0\.2/)
     const cache = JSON.parse(readFileSync(output, "utf8"))
     assert.equal(cache.assertions.length, 7)
+    for (const record of cache.assertions) {
+      assert.ok(Object.hasOwn(cache.sources, record.file), `Missing manifest entry for ${record.file}`)
+    }
     const emitted = join(directory, "build/sample.mjs")
     execFileSync(process.execPath, ["--enable-source-maps", emitted], { cwd: directory, encoding: "utf8" })
     const failure = spawnSync(process.execPath, ["--enable-source-maps", emitted, "fail"], { cwd: directory, encoding: "utf8" })

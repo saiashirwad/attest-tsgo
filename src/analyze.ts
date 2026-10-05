@@ -71,8 +71,9 @@ function analyzeCall(call: CallExpression, source: SourceFile, project: Project,
     if (isPropertyAccessExpression(node)) position = node.name.getStart(source)
     else if (isStringLiteral(node) || isNoSubstitutionTemplateLiteral(node)) {
       if (checker.getContextualType(node)) position = node.getStart(source) + 1
-    } else if ((isTemplateHead(node) || isTemplateMiddle(node) || isTemplateTail(node)) && isTemplateExpression(node.parent)) {
-      if (checker.getContextualType(node.parent)) position = node.getStart(source) + 1
+    } else if (isTemplateHead(node) || isTemplateMiddle(node) || isTemplateTail(node)) {
+      const template = isTemplateExpression(node.parent) ? node.parent : node.parent?.parent
+      if (template && isTemplateExpression(template) && checker.getContextualType(template)) position = node.getStart(source) + 1
     }
     if (position !== undefined) {
       let info: ReturnType<Checker["getCompletionsAtPosition"]>
@@ -92,7 +93,7 @@ function analyzeCall(call: CallExpression, source: SourceFile, project: Project,
     : undefined
   const completions = direct?.kind === "results" ? direct.entries : direct?.kind === "empty" ? [] : null
   return {
-    file: source.fileName,
+    file: resolve(source.fileName),
     start,
     end: call.end,
     line: line + 1,

@@ -37,3 +37,8 @@ export function comparisons() {
     typedArray: () => attest(new Uint8Array([1])).is(new Uint8Array([2]))
   }
 }
+
+export function hostileInspection() {
+  const value = { [Symbol.for("nodejs.util.inspect.custom")]: () => { throw new Error("inspect hook ran") } }
+  attest(value).is({})
+}
