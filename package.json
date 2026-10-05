@@ -1,6 +1,6 @@
 {
   "name": "@texoport/attest",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Experimental type assertions backed by native TypeScript 7",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/saiashirwad/attest-tsgo.git" },
